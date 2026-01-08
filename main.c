@@ -204,7 +204,7 @@ bool process_kill_single(int pid) {
 
   switch (errno) {
   case ESRCH:
-    args.fprintf(stderr, "[%d] I can find this thing...\n", pid);
+    args.fprintf(stderr, "[%d] I can't find this thing...\n", pid);
     break;
 
   case EPERM:
@@ -213,8 +213,7 @@ bool process_kill_single(int pid) {
     break;
 
   default:
-    args.fprintf(stderr, "[%d] It's quite interesting about this thing: %s\n",
-                 pid, strerror(errno));
+    args.fprintf(stderr, "[%d] %s\n", pid, strerror(errno));
     break;
   }
 
