@@ -35,7 +35,6 @@ extern const unsigned char _binary_sound_mp3_start[];
 extern const unsigned char _binary_sound_mp3_end[];
 
 const char *program;
-pthread_t sound_thread;
 
 struct {
   bool force;
@@ -46,7 +45,7 @@ struct {
     int count;
     int capacity;
   } pids;
-} args = {.force = 0, .signal = SIGKILL, .fprintf = fprintf, .pids = {0}};
+} args = {.force = false, .signal = SIGKILL, .fprintf = fprintf, .pids = {0}};
 
 int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
   (void)__stream;
@@ -57,11 +56,14 @@ int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
 
 // PARSE COMMAND LINE
 
+// Needed for '-p'
+void sound_play(void);
+
 bool args_parse_options(int argc, char **argv) {
   char *endptr;
 
   for (;;) {
-    switch (getopt(argc, argv, "fqs:h")) {
+    switch (getopt(argc, argv, "fqs:ph")) {
     case -1:
       return true;
 
@@ -81,15 +83,23 @@ bool args_parse_options(int argc, char **argv) {
       }
       break;
 
+    case 'p':
+      sound_play();
+      exit(0);
+      break;
+
     case 'h':
       printf("Usage:\n"
-             " %s [options...] pids...\n"
+             " %s [option...] [pid...]\n"
              "\n"
              "Options:\n"
-             " -h           display this help and exit\n"
              " -f           assume killing is always succeed\n"
              " -q           silence messages\n"
-             " -s [SIGNAL]  send another signal instead of SIGKILL\n",
+             " -s [SIGNAL]  send another signal instead of SIGKILL\n"
+             "\n"
+             "Additional options:\n"
+             " -h           display this help and exit\n"
+             " -p           play sound and exit\n",
              program);
       return false;
 
@@ -164,9 +174,7 @@ void sound_callback(ma_device *device, void *output, const void *input,
                              frameCount, NULL);
 }
 
-void *sound_setup_routine(void *arg) {
-  (void)arg;
-
+void sound_play(void) {
   ma_decoder decoder;
   ma_decoder_config decoderConfig;
   ma_device_config deviceConfig;
@@ -178,7 +186,7 @@ void *sound_setup_routine(void *arg) {
                              _binary_sound_mp3_end - _binary_sound_mp3_start,
                              &decoderConfig, &decoder) != MA_SUCCESS) {
     args.fprintf(stderr, "%s: failed to initialize inmemory decoder", program);
-    return NULL;
+    return;
   }
 
   deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -190,26 +198,18 @@ void *sound_setup_routine(void *arg) {
 
   if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
     args.fprintf(stderr, "%s: failed to open playback device", program);
-    return NULL;
+    return;
   }
 
   if (ma_device_start(&device) != MA_SUCCESS) {
     args.fprintf(stderr, "%s: failed to start playback device", program);
-    return NULL;
+    return;
   }
 
   time.tv_sec = 1;
   time.tv_nsec = 1000 * 1000 * 570;
   nanosleep(&time, NULL);
-
-  return NULL;
 }
-
-void sound_start(void) {
-  pthread_create(&sound_thread, NULL, sound_setup_routine, NULL);
-}
-
-void sound_join(void) { pthread_join(sound_thread, NULL); }
 
 // SIGNAL
 
@@ -259,13 +259,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  sound_start();
-
   if (!process_kill()) {
     return 1;
   }
 
-  sound_join();
+  sound_play();
 
   return 0;
 }

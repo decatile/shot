@@ -17,6 +17,8 @@ shot allows you to send SIGKILL signal to specfic process ID and play gunshot so
 
 ./shot -q [non-existent-pid] -> no logs
 
+./shot -p                    -> play sound and exit
+
 ./shot -s [sig] [pid]        -> send [sig] signal to [pid]
 
 echo "<pid>" | ./shot        -> no pids == read from stdin
