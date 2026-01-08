@@ -12,6 +12,7 @@ extern const unsigned char _binary_sound_mp3_start[];
 extern const unsigned char _binary_sound_mp3_end[];
 
 const char *program;
+pthread_t sound_thread;
 
 struct {
   bool force;
@@ -94,8 +95,6 @@ bool args_parse(int argc, char **argv) {
 
 ma_device device;
 
-void sound_dispose(void) { ma_device_uninit(&device); }
-
 void sound_callback(ma_device *device, void *output, const void *input,
                     ma_uint32 frameCount) {
   (void)input;
@@ -110,6 +109,7 @@ void *sound_setup_routine(void *arg) {
   ma_decoder decoder;
   ma_decoder_config decoderConfig;
   ma_device_config deviceConfig;
+  struct timespec time;
 
   decoderConfig = ma_decoder_config_init_default();
 
@@ -132,20 +132,23 @@ void *sound_setup_routine(void *arg) {
     return NULL;
   }
 
-  atexit(sound_dispose);
-
   if (ma_device_start(&device) != MA_SUCCESS) {
     args.fprintf(stderr, "%s: failed to start playback device", program);
     return NULL;
   }
 
+  time.tv_sec = 1;
+  time.tv_nsec = 1000 * 1000 * 570;
+  nanosleep(&time, NULL);
+
   return NULL;
 }
 
-void sound_setup(void) {
-  pthread_t handle;
-  pthread_create(&handle, NULL, sound_setup_routine, NULL);
+void sound_start(void) {
+  pthread_create(&sound_thread, NULL, sound_setup_routine, NULL);
 }
+
+void sound_join(void) { pthread_join(sound_thread, NULL); }
 
 // SIGNAL
 
@@ -186,23 +189,19 @@ bool process_kill(void) {
 // MAIN
 
 int main(int argc, char **argv) {
-  struct timespec time;
-
   program = argv[0];
 
   if (!args_parse(argc, argv)) {
     return 1;
   }
 
-  sound_setup();
+  sound_start();
 
   if (!process_kill()) {
     return 1;
   }
 
-  time.tv_sec = 1;
-  time.tv_nsec = 1000 * 1000 * 570;
-  nanosleep(&time, NULL);
+  sound_join();
 
   return 0;
 }
