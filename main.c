@@ -1,12 +1,9 @@
 #include "miniaudio.h"
-#include <asm-generic/errno-base.h>
 #include <errno.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
 
 extern const unsigned char _binary_sound_mp3_start[];
