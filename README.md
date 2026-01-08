@@ -18,6 +18,8 @@ shot allows you to send SIGKILL signal to specfic process ID and play gunshot so
 ./shot -q [pid]              -> silence
 
 ./shot -h                    -> print short summary
+
+echo "<pid>" | ./shot        -> no pids == read from stdin
 ```
 
 ## Credits

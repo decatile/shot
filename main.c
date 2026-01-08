@@ -8,6 +8,29 @@
 #include <string.h>
 #include <unistd.h>
 
+// Taken from
+// https://github.com/tsoding/nob.h/blob/main/nob.h
+
+#define da_reserve(da, expected_capacity)                                      \
+  do {                                                                         \
+    if ((expected_capacity) > (da)->capacity) {                                \
+      if ((da)->capacity == 0) {                                               \
+        (da)->capacity = 1;                                                    \
+      }                                                                        \
+      while ((expected_capacity) > (da)->capacity) {                           \
+        (da)->capacity *= 2;                                                   \
+      }                                                                        \
+      (da)->items =                                                            \
+          realloc((da)->items, (da)->capacity * sizeof(*(da)->items));         \
+    }                                                                          \
+  } while (0)
+
+#define da_append(da, item)                                                    \
+  do {                                                                         \
+    da_reserve((da), (da)->count + 1);                                         \
+    (da)->items[(da)->count++] = (item);                                       \
+  } while (0)
+
 extern const unsigned char _binary_sound_mp3_start[];
 extern const unsigned char _binary_sound_mp3_end[];
 
@@ -17,9 +40,12 @@ pthread_t sound_thread;
 struct {
   bool force;
   int (*fprintf)(FILE *restrict __stream, const char *restrict __format, ...);
-  int *pids;
-  int pidsize;
-} args = {.force = 0, .fprintf = fprintf};
+  struct {
+    int *items;
+    int count;
+    int capacity;
+  } pids;
+} args = {.force = 0, .fprintf = fprintf, .pids = {0}};
 
 int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
   (void)__stream;
@@ -57,26 +83,45 @@ bool args_parse_options(int argc, char **argv) {
   }
 }
 
-bool args_parse_pids(char **array, int arraylen) {
+bool args_parse_pids_as_pipe(void) {
+  char *buffer;
+  size_t buflen;
   char *endptr;
 
-  if (arraylen == 0) {
-    args.fprintf(stderr, "%s: expected process PID\n", program);
-    return false;
-  }
+  buffer = NULL;
+  buflen = 0;
 
-  args.pids = malloc(sizeof(int) * arraylen);
-  args.pidsize = arraylen;
-
-  for (int i = 0; i < arraylen; i++) {
-    args.pids[i] = strtol(array[i], &endptr, 10);
-    if (*endptr != '\0') {
-      args.fprintf(stderr, "%s: failed to parse process PID\n", program);
+  while (getline(&buffer, &buflen, stdin) != EOF) {
+    da_append(&args.pids, strtol(buffer, &endptr, 10));
+    if (strchr(" \n\0", *endptr) == NULL) {
+      args.fprintf(stderr, "%s: failed to parse PID\n", program);
       return false;
     }
   }
 
   return true;
+}
+
+bool args_parse_pids_as_args(char **array, int arraylen) {
+  char *endptr;
+
+  for (int i = 0; i < arraylen; i++) {
+    da_append(&args.pids, strtol(array[i], &endptr, 10));
+    if (*endptr != '\0') {
+      args.fprintf(stderr, "%s: failed to parse PID\n", program);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool args_parse_pids(char **array, int arraylen) {
+  if (arraylen == 0) {
+    return args_parse_pids_as_pipe();
+  }
+
+  return args_parse_pids_as_args(array, arraylen);
 }
 
 bool args_parse(int argc, char **argv) {
@@ -177,8 +222,8 @@ bool process_kill_single(int pid) {
 }
 
 bool process_kill(void) {
-  for (int i = 0; i < args.pidsize; i++) {
-    if (!process_kill_single(args.pids[i])) {
+  for (int i = 0; i < args.pids.count; i++) {
+    if (!process_kill_single(args.pids.items[i])) {
       return false;
     }
   }
