@@ -12,6 +12,8 @@
 extern const unsigned char _binary_sound_mp3_start[];
 extern const unsigned char _binary_sound_mp3_end[];
 
+const char *program;
+
 // PARSE COMMAND LINE
 
 struct {
@@ -37,20 +39,20 @@ bool args_parse(int argc, char **argv) {
              "Options:\n"
              " -h  display this help and exit\n"
              " -f  ignore if process does not exist\n",
-             argv[0]);
+             program);
       return false;
     }
   }
 
 args:
   if (argc == optind) {
-    fprintf(stderr, "%s: expected process PID\n", argv[0]);
+    fprintf(stderr, "%s: expected process PID\n", program);
     return false;
   }
 
   args.pid = strtol(argv[optind], &endptr, 10);
   if (*endptr != '\0') {
-    fprintf(stderr, "%s: failed to parse process PID\n", argv[0]);
+    fprintf(stderr, "%s: failed to parse process PID\n", program);
     return false;
   }
 
@@ -81,7 +83,7 @@ bool sound_setup(void) {
   if (ma_decoder_init_memory(_binary_sound_mp3_start,
                              _binary_sound_mp3_end - _binary_sound_mp3_start,
                              &decoderConfig, &decoder) != MA_SUCCESS) {
-    puts("Failed to initialize inmemory decoder");
+    fprintf(stderr, "%s: failed to initialize inmemory decoder", program);
     return false;
   }
 
@@ -93,14 +95,14 @@ bool sound_setup(void) {
   deviceConfig.pUserData = &decoder;
 
   if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
-    puts("Failed to open playback device");
+    fprintf(stderr, "%s: failed to open playback device", program);
     return false;
   }
 
   atexit(sound_dispose);
 
   if (ma_device_start(&device) != MA_SUCCESS) {
-    puts("Failed to start playback device");
+    fprintf(stderr, "%s: failed to start playback device", program);
     return false;
   }
 
@@ -134,6 +136,8 @@ bool process_kill(void) {
 
 int main(int argc, char **argv) {
   struct timespec time;
+
+  program = argv[0];
 
   if (!args_parse(argc, argv)) {
     return 1;
