@@ -116,6 +116,9 @@ bool process_kill(void) {
 
   switch (errno) {
   case ESRCH:
+    if (args.force) {
+      return true; // We don't care
+    }
     fprintf(stderr, "I can't find this process...\n");
     return false;
 
