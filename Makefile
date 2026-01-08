@@ -11,4 +11,4 @@ install: compile
 	cp shot ~/.local/bin/shot
 
 clean:
-	rm -f .* shot
+	git clean -fdx

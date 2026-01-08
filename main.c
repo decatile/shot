@@ -1,9 +1,11 @@
 #include "miniaudio.h"
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 extern const unsigned char _binary_sound_mp3_start[];
@@ -11,45 +13,77 @@ extern const unsigned char _binary_sound_mp3_end[];
 
 const char *program;
 
-// PARSE COMMAND LINE
-
 struct {
   bool force;
-  int pid;
-} args = {0};
+  int (*fprintf)(FILE *restrict __stream, const char *restrict __format, ...);
+  int *pids;
+  int pidsize;
+} args = {.force = 0, .fprintf = fprintf};
 
-bool args_parse(int argc, char **argv) {
-  char *endptr;
+int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
+  (void)__stream;
+  (void)__format;
 
+  return 0;
+}
+
+// PARSE COMMAND LINE
+
+bool args_parse_options(int argc, char **argv) {
   for (;;) {
-    switch (getopt(argc, argv, "fh")) {
+    switch (getopt(argc, argv, "fqh")) {
     case -1:
-      goto args;
+      return true;
 
     case 'f':
       args.force = 1;
       break;
 
+    case 'q':
+      args.fprintf = noop_fprintf;
+      break;
+
     case 'h':
       printf("Usage:\n"
-             " %s [options...] [pid]\n\n"
+             " %s [options...] pids...\n\n"
              "Options:\n"
              " -h  display this help and exit\n"
-             " -f  ignore if process does not exist\n",
+             " -f  ignore errors\n"
+             " -q  shut up\n",
              program);
       return false;
     }
   }
+}
 
-args:
-  if (argc == optind) {
-    fprintf(stderr, "%s: expected process PID\n", program);
+bool args_parse_pids(char **array, int arraylen) {
+  char *endptr;
+
+  if (arraylen == 0) {
+    args.fprintf(stderr, "%s: expected process PID\n", program);
     return false;
   }
 
-  args.pid = strtol(argv[optind], &endptr, 10);
-  if (*endptr != '\0') {
-    fprintf(stderr, "%s: failed to parse process PID\n", program);
+  args.pids = malloc(sizeof(int) * arraylen);
+  args.pidsize = arraylen;
+
+  for (int i = 0; i < arraylen; i++) {
+    args.pids[i] = strtol(array[i], &endptr, 10);
+    if (*endptr != '\0') {
+      args.fprintf(stderr, "%s: failed to parse process PID\n", program);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool args_parse(int argc, char **argv) {
+  if (!args_parse_options(argc, argv)) {
+    return false;
+  }
+
+  if (!args_parse_pids(argv + optind, argc - optind)) {
     return false;
   }
 
@@ -70,7 +104,9 @@ void sound_callback(ma_device *device, void *output, const void *input,
                              frameCount, NULL);
 }
 
-bool sound_setup(void) {
+void *sound_setup_routine(void *arg) {
+  (void)arg;
+
   ma_decoder decoder;
   ma_decoder_config decoderConfig;
   ma_device_config deviceConfig;
@@ -80,8 +116,8 @@ bool sound_setup(void) {
   if (ma_decoder_init_memory(_binary_sound_mp3_start,
                              _binary_sound_mp3_end - _binary_sound_mp3_start,
                              &decoderConfig, &decoder) != MA_SUCCESS) {
-    fprintf(stderr, "%s: failed to initialize inmemory decoder", program);
-    return false;
+    args.fprintf(stderr, "%s: failed to initialize inmemory decoder", program);
+    return NULL;
   }
 
   deviceConfig = ma_device_config_init(ma_device_type_playback);
@@ -92,44 +128,62 @@ bool sound_setup(void) {
   deviceConfig.pUserData = &decoder;
 
   if (ma_device_init(NULL, &deviceConfig, &device) != MA_SUCCESS) {
-    fprintf(stderr, "%s: failed to open playback device", program);
-    return false;
+    args.fprintf(stderr, "%s: failed to open playback device", program);
+    return NULL;
   }
 
   atexit(sound_dispose);
 
   if (ma_device_start(&device) != MA_SUCCESS) {
-    fprintf(stderr, "%s: failed to start playback device", program);
-    return false;
+    args.fprintf(stderr, "%s: failed to start playback device", program);
+    return NULL;
   }
 
-  return true;
+  return NULL;
+}
+
+void sound_setup(void) {
+  pthread_t handle;
+  pthread_create(&handle, NULL, sound_setup_routine, NULL);
 }
 
 // SIGNAL
 
-bool process_kill(void) {
-  if (kill(args.pid, 9) == 0) {
+bool process_kill_single(int pid) {
+  if (kill(pid, 9) == 0) {
     return true;
   }
 
   switch (errno) {
   case ESRCH:
-    if (args.force) {
-      return true; // We don't care
-    }
-    fprintf(stderr, "I can't find this process...\n");
-    return false;
+    args.fprintf(stderr, "[%d] I can find this thing...\n", pid);
+    break;
 
   case EPERM:
-    fprintf(stderr, "Nah, I have no right to kill this thing...\n");
-    return false;
+    args.fprintf(stderr, "[%d] Nah, I have no right to kill this thing...\n",
+                 pid);
+    break;
 
   default:
-    perror("It's quite interesting");
-    return false;
+    args.fprintf(stderr, "[%d] It's quite interesting about this thing: %s\n",
+                 pid, strerror(errno));
+    break;
   }
+
+  return args.force;
 }
+
+bool process_kill(void) {
+  for (int i = 0; i < args.pidsize; i++) {
+    if (!process_kill_single(args.pids[i])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// MAIN
 
 int main(int argc, char **argv) {
   struct timespec time;
@@ -140,9 +194,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!sound_setup()) {
-    return 1;
-  }
+  sound_setup();
 
   if (!process_kill()) {
     return 1;

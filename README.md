@@ -13,7 +13,9 @@ shot allows you to send SIGKILL signal to specfic process ID and play gunshot so
 
 ./shot [non-existent-pid]    -> failure
 
-./shot -f [non-existent-pid] -> failure silenced
+./shot -f [non-existent-pid] -> failure does not interrupt sound and other pids to kill
+
+./shot -q [pid]              -> silence
 
 ./shot -h                    -> print short summary
 ```
