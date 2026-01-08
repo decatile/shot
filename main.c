@@ -39,13 +39,14 @@ pthread_t sound_thread;
 
 struct {
   bool force;
+  int signal;
   int (*fprintf)(FILE *restrict __stream, const char *restrict __format, ...);
   struct {
     int *items;
     int count;
     int capacity;
   } pids;
-} args = {.force = 0, .fprintf = fprintf, .pids = {0}};
+} args = {.force = 0, .signal = SIGKILL, .fprintf = fprintf, .pids = {0}};
 
 int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
   (void)__stream;
@@ -57,8 +58,10 @@ int noop_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
 // PARSE COMMAND LINE
 
 bool args_parse_options(int argc, char **argv) {
+  char *endptr;
+
   for (;;) {
-    switch (getopt(argc, argv, "fqh")) {
+    switch (getopt(argc, argv, "fqs:h")) {
     case -1:
       return true;
 
@@ -70,14 +73,27 @@ bool args_parse_options(int argc, char **argv) {
       args.fprintf = noop_fprintf;
       break;
 
+    case 's':
+      args.signal = strtol(optarg, &endptr, 10);
+      if (*endptr != '\0') {
+        fprintf(stderr, "%s: failed to parse signal\n", program);
+        return false;
+      }
+      break;
+
     case 'h':
       printf("Usage:\n"
-             " %s [options...] pids...\n\n"
+             " %s [options...] pids...\n"
+             "\n"
              "Options:\n"
-             " -h  display this help and exit\n"
-             " -f  ignore errors\n"
-             " -q  shut up\n",
+             " -h           display this help and exit\n"
+             " -f           assume killing is always succeed\n"
+             " -q           silence messages\n"
+             " -s [SIGNAL]  send another signal instead of SIGKILL\n",
              program);
+      return false;
+
+    case '?':
       return false;
     }
   }
@@ -198,7 +214,7 @@ void sound_join(void) { pthread_join(sound_thread, NULL); }
 // SIGNAL
 
 bool process_kill_single(int pid) {
-  if (kill(pid, 9) == 0) {
+  if (kill(pid, args.signal) == 0) {
     return true;
   }
 
@@ -210,6 +226,10 @@ bool process_kill_single(int pid) {
   case EPERM:
     args.fprintf(stderr, "[%d] Nah, I have no right to kill this thing...\n",
                  pid);
+    break;
+
+  case EINVAL:
+    args.fprintf(stderr, "[%d] Invalid signal, I guess...\n", pid);
     break;
 
   default:
